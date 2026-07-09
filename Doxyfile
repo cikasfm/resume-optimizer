@@ -1,5 +1,5 @@
 # Doxyfile for Resume
-PROJECT_NAME           = "Tony Nguyen Resume"
+PROJECT_NAME           = "Zilvinas Vilutis Resume"
 OUTPUT_DIRECTORY       = build/doxygen
 INPUT                  = docs/resume.dox
 FILE_PATTERNS          = *.dox

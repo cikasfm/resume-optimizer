@@ -87,13 +87,14 @@ class GoogleGeminiProvider(AIProvider):
         import requests
         self.requests = requests
     
-    def generate(self, system_prompt: str, user_prompt: str, model: str = "gemini-pro",
+    def generate(self, system_prompt: str, user_prompt: str, model: str = "gemini-2.5-pro",
                  temperature: float = 0.7, max_tokens: int = 8000, **kwargs) -> str:
         import time
         # Combine system and user prompts for Gemini
         full_prompt = f"{system_prompt}\n\n{user_prompt}"
         
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
+        # Use v1 endpoint which supports newer Gemini models (e.g., gemini-2.5-pro)
+        url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={self.api_key}"
         payload = {
             "contents": [{"parts": [{"text": full_prompt}]}],
             "generationConfig": {
@@ -107,18 +108,65 @@ class GoogleGeminiProvider(AIProvider):
         base_delay = 30  # seconds
         
         for attempt in range(max_retries + 1):
-            response = self.requests.post(url, json=payload, timeout=120)
-            
+            # Verbose progress logs
+            if kwargs.get('verbose'):
+                print(f"[gemini] attempt {attempt+1}/{max_retries+1} -> POST {url}")
+            try:
+                response = self.requests.post(url, json=payload, timeout=120)
+            except Exception as e:
+                # Network/connection level error
+                if kwargs.get('verbose'):
+                    print(f"[gemini] request exception: {e}")
+                raise RuntimeError(f"Gemini request failed: {e}") from e
+
             if response.status_code == 429:
                 if attempt < max_retries:
                     delay = base_delay * (2 ** attempt)
+                    if kwargs.get('verbose'):
+                        print(f"[gemini] rate limited (429). Sleeping {delay}s before retry")
                     time.sleep(delay)
                     continue
-                # Exhausted retries
+                # Exhausted retries - include body for debugging
+                body = None
+                try:
+                    body = response.text
+                except Exception:
+                    body = '<unreadable response body>'
+                raise RuntimeError(f"Gemini rate-limited after retries. Status=429. Body={body}")
+
+            # Raise for other non-2xx and include response body when possible
+            try:
                 response.raise_for_status()
-            
-            response.raise_for_status()
-            return response.json()["candidates"][0]["content"]["parts"][0]["text"]
+            except Exception as e:
+                body = None
+                try:
+                    body = response.text
+                except Exception:
+                    body = '<unreadable response body>'
+                if kwargs.get('verbose'):
+                    print(f"[gemini] non-2xx response: {getattr(response, 'status_code', None)}")
+                    print(f"[gemini] response body (truncated): {body[:1000]}")
+                raise RuntimeError(f"Gemini API returned status {getattr(response, 'status_code', None)}: {body}") from e
+
+            # Try to parse JSON and return text content, with helpful errors
+            try:
+                data = response.json()
+                if kwargs.get('verbose'):
+                    print(f"[gemini] received response JSON keys: {list(data.keys())}")
+            except Exception as e:
+                if kwargs.get('verbose'):
+                    print(f"[gemini] non-JSON response: {response.text[:1000]}")
+                raise RuntimeError(f"Gemini API returned non-JSON response: {response.text}") from e
+
+            try:
+                text = data["candidates"][0]["content"]["parts"][0]["text"]
+                # If caller requested verbose/debug info, return both text and raw JSON
+                if kwargs.get('verbose'):
+                    return {"text": text, "raw": data}
+                return text
+            except Exception as e:
+                # Include the full JSON for debugging
+                raise RuntimeError(f"Gemini API response missing expected fields. Full response: {json.dumps(data)}") from e
 
 
 class GroqProvider(AIProvider):

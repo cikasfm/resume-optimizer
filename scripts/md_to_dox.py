@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import re
-from config_loader import get_path
+from config_loader import get_path, load_config
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = get_path('resume_source')
@@ -18,9 +18,14 @@ def convert_md_to_dox(md_content):
     lines = md_content.splitlines()
     output = []
     
+    # Load config to get name
+    config = load_config()
+    raw_name = config.get('name', 'Resume')
+    display_name = raw_name.replace('_', ' ')
+    
     # Doxygen header
     output.append("/*!")
-    output.append("@page resume Tony Nguyen — Resume")
+    output.append(f"@page resume {display_name} — Resume")
     output.append("")
     
     # Process first heading as header

@@ -2,7 +2,7 @@
 # Central configuration for resume building and optimization
 
 # Personal Information (used for file naming)
-name: "Tony_Nguyen"  # Used in output file names (use underscores, no spaces)
+name: "Zilvinas_Vilutis"  # Used in output file names (use underscores, no spaces)
 
 # Output file patterns
 # These patterns are used when generating DOCX and PDF files
@@ -14,9 +14,13 @@ output_patterns:
   optimized_cover_letter: "cover_letter_{timestamp}.md"  # Cover letter markdown
   optimized_docx: "{name}_Resume_{company}_{timestamp}.docx"  # Optimized resume DOCX (if company provided)
   optimized_pdf: "{name}_Resume_{company}_{timestamp}.pdf"  # Optimized resume PDF (if company provided)
+  cover_letter_docx: "{name}_CoverLetter_{company}_{timestamp}.docx"  # Optimized cover letter DOCX (if company provided)
+  cover_letter_pdf: "{name}_CoverLetter_{company}_{timestamp}.pdf"  # Optimized cover letter PDF (if company provided)
   # Fallback if company not provided
   optimized_docx_fallback: "{name}_Resume_optimized_{timestamp}.docx"
   optimized_pdf_fallback: "{name}_Resume_optimized_{timestamp}.pdf"
+  cover_letter_docx_fallback: "{name}_CoverLetter_optimized_{timestamp}.docx"
+  cover_letter_pdf_fallback: "{name}_CoverLetter_optimized_{timestamp}.pdf"
 
 # File paths (relative to project root)
 paths:
@@ -69,10 +73,12 @@ ai_prompts:
     Each change should be specific and actionable.
 
   # Provider configuration
-  provider: "ollama"  # Options: ollama (FREE), gemini (FREE), groq (FREE), openai (paid), huggingface (FREE)
+  provider: "gemini"  # Options: ollama (FREE), gemini (FREE), groq (FREE), openai (paid), huggingface (FREE)
   
   # Model configuration (provider-specific)
-  model: "llama3.2"  # Model name (varies by provider)
+  # For Gemini use a Gemini-compatible model (e.g. "gemini-pro").
+  # For Ollama use the local model name (e.g. "llama3.2").
+  model: "gemini-2.5-pro"  # Model name (varies by provider)
   temperature: 0.7  # Controls creativity (0.0-1.0, lower = more focused)
   max_tokens: 8000  # Maximum response length (increased for longer resumes)
   

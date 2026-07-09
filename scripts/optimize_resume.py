@@ -158,13 +158,34 @@ Please provide your response in the following JSON format:
     
     try:
         # Call the provider
-        content = provider.generate(
+        # Pass verbose flag to provider so it can return raw/debug info when requested
+        content_result = provider.generate(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             model=provider_config.get('model'),
             temperature=provider_config.get('temperature', 0.7),
-            max_tokens=provider_config.get('max_tokens', 8000)
+            max_tokens=provider_config.get('max_tokens', 8000),
+            verbose=verbose
         )
+
+        # Provider may return either a raw string or a dict with 'text' and 'raw' when verbose
+        raw_provider_response = None
+        if isinstance(content_result, dict):
+            raw_provider_response = content_result.get('raw')
+            content = content_result.get('text', '')
+        else:
+            content = content_result
+
+        # When verbose, print raw provider response (LLM output / thinking) for debugging
+        if verbose and raw_provider_response is not None:
+            try:
+                print('\n--- LLM raw response (debug) ---')
+                print(json.dumps(raw_provider_response, indent=2))
+                print('--- end LLM raw response ---\n')
+            except Exception:
+                print('\n--- LLM raw response (debug) ---')
+                print(str(raw_provider_response))
+                print('--- end LLM raw response ---\n')
         
         # Try to extract JSON from the response
         # Sometimes the model wraps JSON in markdown code blocks

@@ -49,6 +49,8 @@ def get_output_filename(pattern_key, **kwargs):
     defaults = {
         'name': config.get('name', 'Resume'),
         'timestamp': datetime.now().strftime('%Y%m%d_%H%M%S'),
+        'company': '',
+        'job_title': '',
     }
     
     # Merge defaults with provided kwargs
