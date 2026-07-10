@@ -2,7 +2,7 @@
 """
 Generate a beautifully styled DOCX from markdown source, matching
 the layout, spacing, and design of the PDF/Print stylesheet.
-Bypasses default heading styles to prevent Apple Pages / Quick Look from overriding.
+Uses table-based divider lines to guarantee support in Apple Pages / Quick Look.
 """
 import argparse
 import re
@@ -130,20 +130,100 @@ def add_formatted_runs(paragraph, text, size_pt=10.5, color_rgb=(0x33, 0x33, 0x3
         add_basic_runs(paragraph, text[last_end:], size_pt, color_rgb, bold_override)
 
 
-def add_p_border_bottom(paragraph, color_hex="1A365D", size_pt=6, space_pt=4):
-    """Adds a horizontal bottom border line to a paragraph."""
-    pPr = paragraph._p.get_or_add_pPr()
-    pBdr = pPr.find(qn('w:pBdr'))
-    if pBdr is None:
-        pBdr = OxmlElement('w:pBdr')
-        pPr.append(pBdr)
+def create_divider_heading_table(doc, text, color_hex="1A365D", size_pt=12.5):
+    """Creates a single-cell table with a bottom border to represent a heading divider line."""
+    table = doc.add_table(rows=1, cols=1)
+    table.autofit = False
     
+    # Remove default table borders
+    tblPr = table._tbl.tblPr
+    tblBorders = tblPr.find(qn('w:tblBorders'))
+    if tblBorders is not None:
+        tblPr.remove(tblBorders)
+    
+    table.columns[0].width = docx.shared.Inches(7.0)
+    cell = table.cell(0, 0)
+    cell.width = docx.shared.Inches(7.0)
+    
+    # Clear cell margins
+    tcPr = cell._tc.get_or_add_tcPr()
+    tcMar = OxmlElement('w:tcMar')
+    for m in ['top', 'bottom', 'left', 'right']:
+        node = OxmlElement(f'w:{m}')
+        node.set(qn('w:w'), '0')
+        node.set(qn('w:type'), 'dxa')
+        tcMar.append(node)
+    tcPr.append(tcMar)
+    
+    # Set the bottom border
+    tcBorders = OxmlElement('w:tcBorders')
     bottom = OxmlElement('w:bottom')
     bottom.set(qn('w:val'), 'single')
-    bottom.set(qn('w:sz'), str(size_pt))
-    bottom.set(qn('w:space'), str(space_pt))
+    bottom.set(qn('w:sz'), '8')
+    bottom.set(qn('w:space'), '4')
     bottom.set(qn('w:color'), color_hex)
-    pBdr.append(bottom)
+    tcBorders.append(bottom)
+    
+    # Clear other cell borders
+    for b in ['top', 'left', 'right']:
+        node = OxmlElement(f'w:{b}')
+        node.set(qn('w:val'), 'none')
+        tcBorders.append(node)
+    tcPr.append(tcBorders)
+    
+    p = cell.paragraphs[0]
+    p.paragraph_format.space_before = Pt(18)
+    p.paragraph_format.space_after = Pt(6)
+    add_formatted_runs(p, text.upper(), size_pt=size_pt, color_rgb=(0x1A, 0x36, 0x5D), bold_override=True)
+    return table
+
+
+def create_contact_info_table(doc, text):
+    """Creates a single-cell table with a bottom border to represent the contact details block."""
+    table = doc.add_table(rows=1, cols=1)
+    table.autofit = False
+    
+    tblPr = table._tbl.tblPr
+    tblBorders = tblPr.find(qn('w:tblBorders'))
+    if tblBorders is not None:
+        tblPr.remove(tblBorders)
+        
+    table.columns[0].width = docx.shared.Inches(7.0)
+    cell = table.cell(0, 0)
+    cell.width = docx.shared.Inches(7.0)
+    
+    # Clear cell margins
+    tcPr = cell._tc.get_or_add_tcPr()
+    tcMar = OxmlElement('w:tcMar')
+    for m in ['top', 'bottom', 'left', 'right']:
+        node = OxmlElement(f'w:{m}')
+        node.set(qn('w:w'), '0')
+        node.set(qn('w:type'), 'dxa')
+        tcMar.append(node)
+    tcPr.append(tcMar)
+    
+    # Set the bottom border
+    tcBorders = OxmlElement('w:tcBorders')
+    bottom = OxmlElement('w:bottom')
+    bottom.set(qn('w:val'), 'single')
+    bottom.set(qn('w:sz'), '6')
+    bottom.set(qn('w:space'), '8')
+    bottom.set(qn('w:color'), 'CCCCCC')
+    tcBorders.append(bottom)
+    
+    # Clear other cell borders
+    for b in ['top', 'left', 'right']:
+        node = OxmlElement(f'w:{b}')
+        node.set(qn('w:val'), 'none')
+        tcBorders.append(node)
+    tcPr.append(tcBorders)
+    
+    p = cell.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(12)
+    add_formatted_runs(p, text, size_pt=9.5, color_rgb=(0x4A, 0x55, 0x68))
+    return table
 
 
 def build_docx(source_path, output_path):
@@ -174,30 +254,29 @@ def build_docx(source_path, output_path):
             is_first_paragraph_after_h1 = True
         elif is_first_paragraph_after_h1:
             # Centered contact info with bottom border divider
-            paragraph = doc.add_paragraph('')
-            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            paragraph.paragraph_format.space_after = Pt(12)
-            add_p_border_bottom(paragraph, color_hex="CCCCCC", size_pt=6, space_pt=8)
-            add_formatted_runs(paragraph, line.strip(), size_pt=9.5, color_rgb=(0x4A, 0x55, 0x68))
+            create_contact_info_table(doc, line.strip())
+            spacer = doc.add_paragraph('')
+            spacer.paragraph_format.space_before = Pt(6)
+            spacer.paragraph_format.space_after = Pt(0)
             is_first_paragraph_after_h1 = False
         elif line.startswith('## '):
             h2_count += 1
             text = line[3:].strip()
-            paragraph = doc.add_paragraph('')
             if h2_count == 1:
-                # Subtitle (Staff Software Engineer | ...) - no border
+                # Subtitle (Staff Software Engineer | ...) - no border, smaller font (11pt)
+                paragraph = doc.add_paragraph('')
                 paragraph.paragraph_format.space_before = Pt(10)
-                paragraph.paragraph_format.space_after = Pt(6)
-                add_formatted_runs(paragraph, text.upper(), size_pt=12.5, color_rgb=(0x1A, 0x36, 0x5D), bold_override=True)
+                paragraph.paragraph_format.space_after = Pt(10)
+                add_formatted_runs(paragraph, text.upper(), size_pt=11, color_rgb=(0x1A, 0x36, 0x5D), bold_override=True)
             else:
-                # Section heading (uppercase, bottom border)
-                paragraph.paragraph_format.space_before = Pt(18)
-                paragraph.paragraph_format.space_after = Pt(6)
-                add_formatted_runs(paragraph, text.upper(), size_pt=12.5, color_rgb=(0x1A, 0x36, 0x5D), bold_override=True)
-                add_p_border_bottom(paragraph, color_hex="1A365D", size_pt=8, space_pt=4)
+                # Section heading (uppercase, bottom border table)
+                create_divider_heading_table(doc, text, color_hex="1A365D", size_pt=12.5)
+                spacer = doc.add_paragraph('')
+                spacer.paragraph_format.space_before = Pt(6)
+                spacer.paragraph_format.space_after = Pt(0)
         elif line.startswith('### '):
             paragraph = doc.add_paragraph('')
-            paragraph.paragraph_format.space_before = Pt(10)
+            paragraph.paragraph_format.space_before = Pt(12)
             paragraph.paragraph_format.space_after = Pt(4)
             add_formatted_runs(paragraph, line[4:].strip(), size_pt=11, color_rgb=(0x2B, 0x6C, 0xB0), bold_override=True)
         elif line.startswith('#### '):
@@ -209,13 +288,13 @@ def build_docx(source_path, output_path):
             paragraph = doc.add_paragraph('', style='List Bullet')
             paragraph.paragraph_format.space_before = Pt(0)
             paragraph.paragraph_format.space_after = Pt(3)
-            paragraph.paragraph_format.line_spacing = 1.0
+            paragraph.paragraph_format.line_spacing = 1.15
             add_formatted_runs(paragraph, line.strip()[2:].strip(), size_pt=10.5, color_rgb=(0x33, 0x33, 0x33))
         else:
             paragraph = doc.add_paragraph('')
             paragraph.paragraph_format.space_before = Pt(0)
-            paragraph.paragraph_format.space_after = Pt(4)
-            paragraph.paragraph_format.line_spacing = 1.0
+            paragraph.paragraph_format.space_after = Pt(6)
+            paragraph.paragraph_format.line_spacing = 1.15
             add_formatted_runs(paragraph, line, size_pt=10.5, color_rgb=(0x33, 0x33, 0x33))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
