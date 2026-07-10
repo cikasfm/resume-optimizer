@@ -2,6 +2,7 @@
 """
 Generate a beautifully styled DOCX from markdown source, matching
 the layout, spacing, and design of the PDF/Print stylesheet.
+Bypasses default heading styles to prevent Apple Pages / Quick Look from overriding.
 """
 import argparse
 import re
@@ -48,8 +49,8 @@ def parse_markdown_inline(text):
     return segments
 
 
-def add_hyperlink(paragraph, text, url, color_hex="2B6CB0", underline=True):
-    """Adds a clickable hyperlink to a paragraph."""
+def add_hyperlink(paragraph, text, url, color_hex="2B6CB0", size_pt=10.5, underline=True):
+    """Adds a clickable hyperlink to a paragraph, explicitly forcing Arial and size."""
     part = paragraph.part
     r_id = part.relate_to(url, docx.opc.constants.RELATIONSHIP_TYPE.HYPERLINK, is_external=True)
 
@@ -62,6 +63,20 @@ def add_hyperlink(paragraph, text, url, color_hex="2B6CB0", underline=True):
 
     # Create a new w:rPr node
     rPr = OxmlElement('w:rPr')
+
+    # Add Arial font styling
+    rFonts = OxmlElement('w:rFonts')
+    rFonts.set(qn('w:ascii'), 'Arial')
+    rFonts.set(qn('w:hAnsi'), 'Arial')
+    rPr.append(rFonts)
+
+    # Add size styling (in half-points)
+    sz = OxmlElement('w:sz')
+    sz.set(qn('w:val'), str(int(size_pt * 2)))
+    rPr.append(sz)
+    szCs = OxmlElement('w:szCs')
+    szCs.set(qn('w:val'), str(int(size_pt * 2)))
+    rPr.append(szCs)
 
     # Add color
     c = OxmlElement('w:color')
@@ -87,29 +102,32 @@ def add_hyperlink(paragraph, text, url, color_hex="2B6CB0", underline=True):
     return hyperlink
 
 
-def add_basic_runs(paragraph, text):
-    """Adds bold/italic runs to a paragraph."""
+def add_basic_runs(paragraph, text, size_pt=10.5, color_rgb=(0x33, 0x33, 0x33), bold_override=None):
+    """Adds bold/italic runs to a paragraph, forcing Arial, size, and color."""
     for segment, bold, italic in parse_markdown_inline(text):
         if segment:
             run = paragraph.add_run(segment)
-            run.bold = bold
+            run.font.name = 'Arial'
+            run.font.size = Pt(size_pt)
+            run.font.color.rgb = RGBColor(*color_rgb)
+            run.bold = bold_override if bold_override is not None else bold
             run.italic = italic
 
 
-def add_formatted_runs(paragraph, text):
+def add_formatted_runs(paragraph, text, size_pt=10.5, color_rgb=(0x33, 0x33, 0x33), bold_override=None):
     """Parses text for links and basic inline styles and adds them to paragraph."""
     last_end = 0
     for match in MARKDOWN_LINK_RE.finditer(text):
         if match.start() > last_end:
-            add_basic_runs(paragraph, text[last_end:match.start()])
+            add_basic_runs(paragraph, text[last_end:match.start()], size_pt, color_rgb, bold_override)
         
         link_text = match.group(1)
         link_url = match.group(2)
-        add_hyperlink(paragraph, link_text, link_url)
+        add_hyperlink(paragraph, link_text, link_url, size_pt=size_pt)
         last_end = match.end()
         
     if last_end < len(text):
-        add_basic_runs(paragraph, text[last_end:])
+        add_basic_runs(paragraph, text[last_end:], size_pt, color_rgb, bold_override)
 
 
 def add_p_border_bottom(paragraph, color_hex="1A365D", size_pt=6, space_pt=4):
@@ -139,46 +157,6 @@ def build_docx(source_path, output_path):
         section.left_margin = Pt(54)
         section.right_margin = Pt(54)
 
-    # Configure styles
-    # Set Normal (body text)
-    style_normal = doc.styles['Normal']
-    font_normal = style_normal.font
-    font_normal.name = 'Arial'
-    font_normal.size = Pt(10.5)
-    font_normal.color.rgb = RGBColor(0x33, 0x33, 0x33)
-    style_normal.paragraph_format.space_after = Pt(4)
-    style_normal.paragraph_format.line_spacing = 1.15
-
-    # Set Heading 1
-    style_h1 = doc.styles['Heading 1']
-    font_h1 = style_h1.font
-    font_h1.name = 'Arial'
-    font_h1.size = Pt(20)
-    font_h1.bold = True
-    font_h1.color.rgb = RGBColor(0x1A, 0x36, 0x5D)
-    style_h1.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    style_h1.paragraph_format.space_after = Pt(6)
-
-    # Set Heading 2
-    style_h2 = doc.styles['Heading 2']
-    font_h2 = style_h2.font
-    font_h2.name = 'Arial'
-    font_h2.size = Pt(12.5)
-    font_h2.bold = True
-    font_h2.color.rgb = RGBColor(0x1A, 0x36, 0x5D)
-    style_h2.paragraph_format.space_before = Pt(18)
-    style_h2.paragraph_format.space_after = Pt(6)
-
-    # Set Heading 3
-    style_h3 = doc.styles['Heading 3']
-    font_h3 = style_h3.font
-    font_h3.name = 'Arial'
-    font_h3.size = Pt(11)
-    font_h3.bold = True
-    font_h3.color.rgb = RGBColor(0x2B, 0x6C, 0xB0)
-    style_h3.paragraph_format.space_before = Pt(10)
-    style_h3.paragraph_format.space_after = Pt(4)
-
     h2_count = 0
     is_first_paragraph_after_h1 = False
 
@@ -188,8 +166,11 @@ def build_docx(source_path, output_path):
             continue
             
         if line.startswith('# '):
-            heading = doc.add_heading('', level=1)
-            add_formatted_runs(heading, line[2:].strip())
+            paragraph = doc.add_paragraph('')
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            paragraph.paragraph_format.space_before = Pt(0)
+            paragraph.paragraph_format.space_after = Pt(6)
+            add_formatted_runs(paragraph, line[2:].strip(), size_pt=20, color_rgb=(0x1A, 0x36, 0x5D), bold_override=True)
             is_first_paragraph_after_h1 = True
         elif is_first_paragraph_after_h1:
             # Centered contact info with bottom border divider
@@ -197,33 +178,45 @@ def build_docx(source_path, output_path):
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             paragraph.paragraph_format.space_after = Pt(12)
             add_p_border_bottom(paragraph, color_hex="CCCCCC", size_pt=6, space_pt=8)
-            add_formatted_runs(paragraph, line.strip())
+            add_formatted_runs(paragraph, line.strip(), size_pt=9.5, color_rgb=(0x4A, 0x55, 0x68))
             is_first_paragraph_after_h1 = False
         elif line.startswith('## '):
             h2_count += 1
             text = line[3:].strip()
-            heading = doc.add_heading('', level=2)
+            paragraph = doc.add_paragraph('')
             if h2_count == 1:
                 # Subtitle (Staff Software Engineer | ...) - no border
-                add_formatted_runs(heading, text.upper())
+                paragraph.paragraph_format.space_before = Pt(10)
+                paragraph.paragraph_format.space_after = Pt(6)
+                add_formatted_runs(paragraph, text.upper(), size_pt=12.5, color_rgb=(0x1A, 0x36, 0x5D), bold_override=True)
             else:
                 # Section heading (uppercase, bottom border)
-                add_formatted_runs(heading, text.upper())
-                add_p_border_bottom(heading, color_hex="1A365D", size_pt=8, space_pt=4)
+                paragraph.paragraph_format.space_before = Pt(18)
+                paragraph.paragraph_format.space_after = Pt(6)
+                add_formatted_runs(paragraph, text.upper(), size_pt=12.5, color_rgb=(0x1A, 0x36, 0x5D), bold_override=True)
+                add_p_border_bottom(paragraph, color_hex="1A365D", size_pt=8, space_pt=4)
         elif line.startswith('### '):
-            heading = doc.add_heading('', level=3)
-            add_formatted_runs(heading, line[4:].strip())
+            paragraph = doc.add_paragraph('')
+            paragraph.paragraph_format.space_before = Pt(10)
+            paragraph.paragraph_format.space_after = Pt(4)
+            add_formatted_runs(paragraph, line[4:].strip(), size_pt=11, color_rgb=(0x2B, 0x6C, 0xB0), bold_override=True)
         elif line.startswith('#### '):
-            heading = doc.add_heading('', level=4)
-            add_formatted_runs(heading, line[5:].strip())
+            paragraph = doc.add_paragraph('')
+            paragraph.paragraph_format.space_before = Pt(8)
+            paragraph.paragraph_format.space_after = Pt(3)
+            add_formatted_runs(paragraph, line[5:].strip(), size_pt=10, color_rgb=(0x4A, 0x55, 0x68), bold_override=True)
         elif line.lstrip().startswith('- '):
             paragraph = doc.add_paragraph('', style='List Bullet')
+            paragraph.paragraph_format.space_before = Pt(0)
             paragraph.paragraph_format.space_after = Pt(3)
-            add_formatted_runs(paragraph, line.strip()[2:].strip())
+            paragraph.paragraph_format.line_spacing = 1.0
+            add_formatted_runs(paragraph, line.strip()[2:].strip(), size_pt=10.5, color_rgb=(0x33, 0x33, 0x33))
         else:
             paragraph = doc.add_paragraph('')
+            paragraph.paragraph_format.space_before = Pt(0)
             paragraph.paragraph_format.space_after = Pt(4)
-            add_formatted_runs(paragraph, line)
+            paragraph.paragraph_format.line_spacing = 1.0
+            add_formatted_runs(paragraph, line, size_pt=10.5, color_rgb=(0x33, 0x33, 0x33))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(output_path))
